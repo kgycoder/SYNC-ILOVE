@@ -1015,7 +1015,9 @@ async function doSearch(query) {
            사용자가 입력한 검색어를 그대로, 실제 유튜브 검색창에
            입력했을 때와 동일하게 전달한다. */
         const res = await callCs({ type: 'search', query: query.trim() });
-        S.q = res.tracks || [];
+        // 유튜브가 돌려준 결과는 그대로 보존하고(강력한 검색 유지),
+        // 음악/뮤직비디오로 보이는 항목이 앞에 오도록 순서만 재정렬한다.
+        S.q = sortMusicFirst(res.tracks || []);
         if (!S.q.length) { area.innerHTML = `<div class="state"><h3>결과 없음</h3><p>다른 검색어를 시도해보세요</p></div>`; return; }
         area.innerHTML = `<div class="sh"><h2>검색 결과 <span style="font-size:12px;font-weight:400;color:var(--t3)">${S.q.length}개</span></h2></div>
       <div class="cgrid" id="sg"></div>`;
@@ -1188,6 +1190,32 @@ function rankMusicResults(tracks) {
         .map(t => ({ t, s: musicScore(t) }))
         .filter(x => x.s > -9)
         .sort((a, b) => b.s - a.s)
+        .map(x => x.t);
+}
+
+/* ── 검색 결과 음악 우선 정렬 ──
+   실제 유튜브 "동영상" 검색 결과를 그대로 받아오는 강력한 검색은
+   유지하되(결과를 하나도 제거/차단하지 않음), 음악·뮤직비디오로
+   보이는 항목이 위쪽에 먼저 보이도록 점수 기반으로 "정렬만" 한다.
+   musicScore의 컴필레이션/곡 길이 판단에 더해, 음악 채널·영상임을
+   나타내는 키워드(공식 채널/official·MV·audio·lyrics 등)에 가점을
+   줘서, 검색어와 무관한 일반 영상보다 음악 영상이 앞으로 오게 한다. */
+const SEARCH_MUSIC_CHANNEL_RE = /(vevo|topic|music|records|entertainment|sound|audio|label|studio|엔터테인먼트|뮤직|레이블)/i;
+const SEARCH_MUSIC_TITLE_RE = /(official\s*(video|audio|mv|music\s*video|teaser|trailer)|m\/v|lyrics?|\(official\)|audio|visualizer|live|performance|concert|feat\.?|뮤직비디오|음원|공식|가사|라이브)/i;
+
+function searchMusicScore(t) {
+    let score = musicScore(t);
+    const title = (t.title || '').toLowerCase();
+    const ch = (t.channel || '').toLowerCase();
+    if (SEARCH_MUSIC_CHANNEL_RE.test(ch)) score += 5;
+    if (SEARCH_MUSIC_TITLE_RE.test(title)) score += 3;
+    return score;
+}
+
+function sortMusicFirst(tracks) {
+    return tracks
+        .map((t, i) => ({ t, s: searchMusicScore(t), i }))
+        .sort((a, b) => b.s - a.s || a.i - b.i)   // 동점이면 유튜브가 준 원래 순서 유지
         .map(x => x.t);
 }
 
@@ -2470,7 +2498,7 @@ async function plAddModalSearch(q, immediate = false) {
         res.innerHTML = `<div class="pl-add-modal-hint"><div class="spinner" style="width:20px;height:20px;border-width:1.5px;margin:0 auto 8px"></div>검색 중...</div>`;
         try {
             const data = await callCs({ type: 'search', query: q });
-            const tracks = (data.tracks || []).slice(0, 5); // 한번에 나타나는 개수를 줄여 스캔하기 편하게
+            const tracks = sortMusicFirst(data.tracks || []).slice(0, 5); // 음악 우선 정렬 후, 한번에 나타나는 개수를 줄여 스캔하기 편하게
             if (!tracks.length) { res.innerHTML = `<div class="pl-add-modal-hint">결과가 없어요</div>`; return; }
             res.innerHTML = '';
             const pl = plById(PL.curId);
