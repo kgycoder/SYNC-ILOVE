@@ -2932,7 +2932,7 @@ body.overlay-mode #ov-bar-wrap {
     justify-content: center;
     cursor: pointer;
     transition: all .15s;
-    opacity: 0;
+    opacity: 1;
     color: rgba(255,255,255,.85);
 }
 
@@ -3380,7 +3380,8 @@ body.maximized {
     transform: scale(0.96);
 }
 
-.c-fav {
+.c-fav,
+.c-pl-add {
     opacity: 1 !important; /* always visible on touch */
 }
 
