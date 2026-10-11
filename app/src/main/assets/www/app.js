@@ -959,6 +959,8 @@ initYt();
    AUTOCOMPLETE
 ════════════════════════════════════════════ */
 let _sugTimer = null;
+let _sugSeq = 0;            // 추천어 요청 세대 번호 (검색 실행 시 올려서 늦게 도착한 응답을 무효화)
+let _lastSearchedQ = '';    // 방금 실행한 검색어 (같은 검색어로는 추천 박스를 다시 열지 않음)
 document.addEventListener('mousedown', e => {
     const item = e.target.closest('.sug-item');
     if (!item) return;
@@ -976,11 +978,13 @@ document.addEventListener('mousedown', e => {
 async function onSuggest(inp, dropId) {
     const q = inp.value.trim();
     const drop = document.getElementById(dropId);
-    if (!q) { drop.classList.remove('on'); return; }
+    if (!q || q === _lastSearchedQ) { clearTimeout(_sugTimer); _sugSeq++; drop.classList.remove('on'); return; }
     clearTimeout(_sugTimer);
+    const seq = ++_sugSeq;
     _sugTimer = setTimeout(async () => {
         try {
             const res = await callCs({ type: 'suggest', query: q });
+            if (seq !== _sugSeq) return;   // 그 사이 검색이 실행되었거나 입력이 바뀜
             const sugs = res.suggestions || [];
             if (!sugs.length) { drop.classList.remove('on'); return; }
             drop.innerHTML = sugs.map(s => `
@@ -1004,6 +1008,8 @@ async function doSearch(query) {
     if (!query?.trim()) return;
     gv('search', document.querySelector('[data-v="search"]'));
     const qi = document.getElementById('q-s'); if (qi) qi.value = query;
+    clearTimeout(_sugTimer); _sugSeq++;          // 대기 중이거나 진행 중인 추천어 요청 취소
+    _lastSearchedQ = query.trim();
     hideSug('sug-s'); hideSug('sug-home');
     const area = document.getElementById('s-res');
     area.innerHTML = `<div class="state"><div class="spinner"></div><p style="margin-top:12px">검색 중...</p></div>`;
