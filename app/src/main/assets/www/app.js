@@ -1075,7 +1075,49 @@ function ytThumbNext(img, id, finalSrc) {
     else if (!img.dataset.f2) { img.dataset.f2 = '1'; img.src = finalSrc || getThumbSd(id); }
 }
 function ytThumbCheck(img, id, finalSrc) {
-    if (isYtThumbPlaceholder(img)) ytThumbNext(img, id, finalSrc);
+    if (isYtThumbPlaceholder(img)) { ytThumbNext(img, id, finalSrc); return; }
+    ytCropBars(img);
+}
+
+/* 일부 영상은 섬네일 이미지 안에 검은 여백(레터/필러박스)이 그대로 들어 있다.
+   로드된 이미지의 가장자리를 검사해 여백이 있으면 실제 내용 영역만 잘라 교체한다.
+   (CORS 로 읽을 수 없거나 여백이 없으면 아무 것도 하지 않음) */
+function ytCropBars(img) {
+    const src = img.currentSrc || img.src;
+    if (!src || /^(data|blob):/.test(src) || !/^https?:/.test(src)) return;
+    const probe = new Image();
+    probe.crossOrigin = 'anonymous';
+    probe.onload = () => {
+        try {
+            const nw = probe.naturalWidth, nh = probe.naturalHeight;
+            if (!nw || !nh || (nw === 120 && nh === 90)) return;
+            const sw = 96, sh = Math.max(8, Math.round(sw * nh / nw));
+            const sc = document.createElement('canvas'); sc.width = sw; sc.height = sh;
+            const sx = sc.getContext('2d', { willReadFrequently: true });
+            sx.drawImage(probe, 0, 0, sw, sh);
+            const d = sx.getImageData(0, 0, sw, sh).data;
+            const dark = (x, y) => { const k = (y * sw + x) * 4; return (d[k] + d[k + 1] + d[k + 2]) / 3 < 22; };
+            const rowDark = y => { let n = 0; for (let x = 0; x < sw; x++) if (dark(x, y)) n++; return n / sw > 0.97; };
+            const colDark = x => { let n = 0; for (let y = 0; y < sh; y++) if (dark(x, y)) n++; return n / sh > 0.97; };
+            const maxY = Math.floor(sh * 0.4), maxX = Math.floor(sw * 0.4);
+            let t = 0, b = 0, l = 0, r = 0;
+            while (t < maxY && rowDark(t)) t++;
+            while (b < maxY && rowDark(sh - 1 - b)) b++;
+            while (l < maxX && colDark(l)) l++;
+            while (r < maxX && colDark(sw - 1 - r)) r++;
+            if (t < 2 && b < 2 && l < 2 && r < 2) return;      // 여백 없음
+            const cx = Math.round(l / sw * nw), cy = Math.round(t / sh * nh);
+            const cw = Math.round((sw - l - r) / sw * nw), ch = Math.round((sh - t - b) / sh * nh);
+            if (cw < nw * 0.4 || ch < nh * 0.4) return;
+            const scale = Math.min(1, 640 / cw);
+            const oc = document.createElement('canvas');
+            oc.width = Math.round(cw * scale); oc.height = Math.round(ch * scale);
+            oc.getContext('2d').drawImage(probe, cx, cy, cw, ch, 0, 0, oc.width, oc.height);
+            const out = oc.toDataURL('image/jpeg', 0.88);
+            if ((img.currentSrc || img.src) === src) img.src = out;   // 그 사이 다른 곡으로 바뀌었으면 무시
+        } catch (e) { /* 캔버스 접근 불가 → 원본 유지 */ }
+    };
+    probe.src = src;
 }
 
 /* 로컬 저장용 썸네일은 hqdefault.jpg(480×360, 4:3 컨테이너)를 쓰면
@@ -1132,12 +1174,12 @@ function mkCard(t, i, playFn) {
           <svg width="22" height="22" viewBox="0 0 22 22" fill="currentColor"><polygon points="6,3 18,11 6,19"/></svg>
         </button>
       </div>
-      <button class="c-fav${f ? ' on' : ''}" onclick="event.stopPropagation();toggleFavT(${i})">
+      <button class="c-fav${f ? ' on' : ''}">
         <svg width="13" height="13" viewBox="0 0 13 13" fill="${f ? 'var(--acc)' : 'none'}" stroke="${f ? 'var(--acc)' : 'rgba(255,255,255,.85)'}" stroke-width="1.4" stroke-linecap="round">
           <path d="M6.5 11.5S1 8 1 5a2.8 2.8 0 0 1 5.5-1 2.8 2.8 0 0 1 5.5 1C12 8 6.5 11.5 6.5 11.5z"/>
         </svg>
       </button>
-      <button class="c-pl-add" onclick="event.stopPropagation();plShowCtxById('${esc(t.id)}')" title="플레이리스트에 추가">
+      <button class="c-pl-add" title="플레이리스트에 추가">
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <line x1="5.5" y1="1" x2="5.5" y2="10"/><line x1="1" y1="5.5" x2="10" y2="5.5"/>
         </svg>
@@ -1149,6 +1191,10 @@ function mkCard(t, i, playFn) {
       <div class="c-title">${esc(t.title)}</div>
       <div class="c-ch">${esc(t.channel)}</div>
     </div>`;
+    /* 즐겨찾기 / 플레이리스트 추가: 카드가 속한 목록(홈·검색·즐겨찾기)과 S.q 의 인덱스가
+       서로 달라 엉뚱한 곡이 처리되던 문제 → 카드의 트랙 객체를 직접 사용한다. */
+    c.querySelector('.c-fav').addEventListener('click', e => { e.stopPropagation(); toggleFavTrack(t); });
+    c.querySelector('.c-pl-add').addEventListener('click', e => { e.stopPropagation(); plShowCtxTrack(e, t); });
     c.querySelector('.c-play-btn').addEventListener('click', e => { e.stopPropagation(); playFn(); });
     c.querySelector('.c-thumb').addEventListener('click', playFn);
     return c;
@@ -2093,8 +2139,12 @@ function isFav(id) { return S.favs.some(f => f.id === id); }
 function saveFavs() { localStorage.setItem('xw_fav', JSON.stringify(S.favs)); }
 function toggleFavT(idx) {
     const t = S.q[idx]; if (!t) return;
+    toggleFavTrack(t);
+}
+function toggleFavTrack(t) {
+    if (!t || !t.id) return;
     if (isFav(t.id)) { S.favs = S.favs.filter(f => f.id !== t.id); toast('즐겨찾기 제거'); }
-    else { S.favs.push(t); toast('✦ 즐겨찾기 추가'); }
+    else { S.favs.push({ id: t.id, title: t.title, channel: t.channel, dur: t.dur, thumb: t.thumb }); toast('✦ 즐겨찾기 추가'); }
     // Update the heart color FIRST, before anything else. saveFavs/refreshDots/render* below
     // are wrapped so that if any one of them throws (e.g. on unexpected track data), it can
     // no longer silently stop this function partway through and skip the visual update —
@@ -2550,6 +2600,16 @@ let _plCtxTrack = null;
 let _lastMouseEvt = null;
 document.addEventListener('mousemove', e => { _lastMouseEvt = e; });
 
+function plShowCtxTrack(e, track) {
+    if (!track) return;
+    const btn = e && e.currentTarget;
+    let pos = { clientX: innerWidth / 2, clientY: innerHeight / 2 };
+    if (btn && btn.getBoundingClientRect) {
+        const r = btn.getBoundingClientRect();
+        pos = { clientX: r.left, clientY: r.bottom + 6 };
+    } else if (e && typeof e.clientX === 'number') pos = e;
+    plShowCtx(pos, track);
+}
 function plShowCtxById(trackId) {
     const track = S.q.find(t => t.id === trackId)
         || S.favs.find(t => t.id === trackId)
@@ -2580,9 +2640,9 @@ function plShowCtx(e, track) {
 }
 function plCtxAdd(plId) { if (_plCtxTrack) plAddTrack(plId, _plCtxTrack); plCtxClose(); }
 async function plCtxNew() {
+    const track = _plCtxTrack;   // plCtxClose() 가 _plCtxTrack 을 비우기 전에 먼저 보관
     plCtxClose();
-    if (!_plCtxTrack) return;
-    const track = _plCtxTrack;
+    if (!track) return;
     const id = await plNewPrompt(track.title.slice(0, 20));
     if (id) plAddTrack(id, track);
 }
