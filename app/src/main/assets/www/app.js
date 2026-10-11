@@ -1197,18 +1197,29 @@ function rankMusicResults(tracks) {
    실제 유튜브 "동영상" 검색 결과를 그대로 받아오는 강력한 검색은
    유지하되(결과를 하나도 제거/차단하지 않음), 음악·뮤직비디오로
    보이는 항목이 위쪽에 먼저 보이도록 점수 기반으로 "정렬만" 한다.
-   musicScore의 컴필레이션/곡 길이 판단에 더해, 음악 채널·영상임을
-   나타내는 키워드(공식 채널/official·MV·audio·lyrics 등)에 가점을
-   줘서, 검색어와 무관한 일반 영상보다 음악 영상이 앞으로 오게 한다. */
+   검색어 자체에 official 같은 키워드를 덧붙이지 않으므로(그러면
+   정작 그런 단어가 없는 진짜 공식 영상이 역으로 밀려남), 대신
+   결과로 돌아온 제목/채널명의 "신호"만 보고 점수를 매긴다.
+   진짜 공식 업로드는 제목에 "official"이 없는 경우도 많기 때문에
+   제목 키워드보다 채널(레이블/아티스트 공식 채널·유튜브 자동 생성
+   "- Topic" 채널) 신호에 더 큰 가중치를 두고, 반대로 "커버/edit"
+   처럼 음악 자체가 아니라 팬이 재가공한 영상임을 뜻하는 신호는
+   제목에 official이 없더라도 강하게 감점해 뒤로 보낸다. */
 const SEARCH_MUSIC_CHANNEL_RE = /(vevo|topic|music|records|entertainment|sound|audio|label|studio|엔터테인먼트|뮤직|레이블)/i;
 const SEARCH_MUSIC_TITLE_RE = /(official\s*(video|audio|mv|music\s*video|teaser|trailer)|m\/v|lyrics?|\(official\)|audio|visualizer|live|performance|concert|feat\.?|뮤직비디오|음원|공식|가사|라이브)/i;
+// 커버곡·팬 편집(에딧) 영상 신호 — 원곡 영상이 아니라 2차 창작물인 경우가 많아,
+// 제목에 official이 없어도 실제 공식 영상보다 아래로 내려가야 한다.
+const SEARCH_COVER_EDIT_TITLE_RE = /(\bcover\b|커버|\bedits?\b|에딧|에디트|cover\s*by|cover\s*ver|dance\s*cover|acoustic\s*cover|밴드\s*커버|노래\s*커버|보컬\s*커버|리믹스\s*커버)/i;
+const SEARCH_COVER_EDIT_CHANNEL_RE = /(\bcover\b|커버|\bedits?\b|에딧|에디트|fancam|직캠)/i;
 
 function searchMusicScore(t) {
     let score = musicScore(t);
     const title = (t.title || '').toLowerCase();
     const ch = (t.channel || '').toLowerCase();
-    if (SEARCH_MUSIC_CHANNEL_RE.test(ch)) score += 5;
+    if (SEARCH_MUSIC_CHANNEL_RE.test(ch)) score += 7;   // 제목보다 신뢰도 높은 신호
     if (SEARCH_MUSIC_TITLE_RE.test(title)) score += 3;
+    if (SEARCH_COVER_EDIT_TITLE_RE.test(title)) score -= 12;
+    if (SEARCH_COVER_EDIT_CHANNEL_RE.test(ch)) score -= 8;
     return score;
 }
 
